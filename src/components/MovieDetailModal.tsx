@@ -61,7 +61,14 @@ export default function MovieDetailModal({ movieCd, movieNm, onClose }: MovieDet
       });
 
       if (!response.ok) {
-        throw new Error("상세 감상평 생성에 실패했습니다. 잠시 후 다시 시도해 주세요.");
+        let errMsg = "상세 감상평 생성에 실패했습니다. 잠시 후 다시 시도해 주세요.";
+        try {
+          const errData = await response.json();
+          if (errData && errData.error) {
+            errMsg = errData.error;
+          }
+        } catch (_) {}
+        throw new Error(errMsg);
       }
 
       const data = await response.json();

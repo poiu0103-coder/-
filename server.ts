@@ -71,8 +71,10 @@ async function startServer() {
       }
 
       const apiKey = process.env.GEMINI_API_KEY;
-      if (!apiKey) {
-        return res.status(500).json({ error: "Gemini API key is not configured on the server." });
+      if (!apiKey || apiKey === "MY_GEMINI_API_KEY") {
+        return res.status(401).json({ 
+          error: "Gemini API 키가 설정되지 않았습니다. AI Studio 우측 상단의 'Settings > Secrets' 메뉴에서 GEMINI_API_KEY 항목에 유효한 API 키를 추가해 주세요." 
+        });
       }
 
       // Lazy initialization of GoogleGenAI
@@ -94,10 +96,39 @@ async function startServer() {
 장르: ${genres || "알 수 없음"}
 관객의 간단한 감상평: "${briefReview}"`;
 
-      const response = await ai.models.generateContent({
-        model: "gemini-3.5-flash",
-        contents: prompt,
-      });
+      // Try to generate content with fallback
+      let response;
+      try {
+        response = await ai.models.generateContent({
+          model: "gemini-3.5-flash",
+          contents: prompt,
+        });
+      } catch (geminiError: any) {
+        const errorMsg = geminiError.message || "";
+        const errorStr = (errorMsg + " " + (geminiError.status || "") + " " + JSON.stringify(geminiError)).toLowerCase();
+        
+        // If the error indicates transient/503/high demand/unavailable status
+        if (
+          errorStr.includes("503") || 
+          errorStr.includes("unavailable") || 
+          errorStr.includes("demand") || 
+          errorStr.includes("overloaded") ||
+          errorStr.includes("limit")
+        ) {
+          console.warn("gemini-3.5-flash is under heavy demand, falling back to gemini-3.1-flash-lite: ", geminiError);
+          try {
+            response = await ai.models.generateContent({
+              model: "gemini-3.1-flash-lite",
+              contents: prompt,
+            });
+          } catch (fallbackError: any) {
+            console.error("Fallback to gemini-3.1-flash-lite also failed: ", fallbackError);
+            throw new Error("현재 영화 상세 평론 생성 서버에 과부하가 걸렸습니다. 잠시 후 다시 시도해 주세요.");
+          }
+        } else {
+          throw geminiError;
+        }
+      }
 
       const generatedText = response.text?.trim() || "";
       res.json({ result: generatedText });
